@@ -96,89 +96,121 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     private String boothAddress = "";
     private String oneModel, drawingRev, oneClass, oneCode, chipId, dateTime, specification = "";
 
-    /** Whether a Bluetooth printer is currently connected. */
+    /**
+     * Whether a Bluetooth printer is currently connected.
+     */
     private boolean isConnection = false;//蓝牙是否连接
-    
-    /** Whether device lookup keeps polling until paired devices are found. */
+
+    /**
+     * Whether device lookup keeps polling until paired devices are found.
+     */
     private boolean isKeep = false;//蓝牙持续回调
     private BluetoothDevice device = null;
     private static BluetoothSocket bluetoothSocket = null;
     private static OutputStream outputStream = null;
-    
-    /** Standard Serial Port Profile (SPP) UUID used for RFCOMM connections. */
+
+    /**
+     * Standard Serial Port Profile (SPP) UUID used for RFCOMM connections.
+     */
     private static final UUID uuid = UUID
             .fromString("00001101-0000-1000-8000-00805F9B34FB");
-    
-    /** MAC address of the connected printer (returned to JavaScript as "uuid"). */
-    private static  String  uuid_bl ="";
-    
-    /** Name of the connected printer. */
-    private static  String name_bl ="";
+
+    /**
+     * MAC address of the connected printer (returned to JavaScript as "uuid").
+     */
+    private static String uuid_bl = "";
+
+    /**
+     * Name of the connected printer.
+     */
+    private static String name_bl = "";
 
     /**
      * 复位打印机
      */
-    /** ESC/POS: initialize (reset) the printer. */
+    /**
+     * ESC/POS: initialize (reset) the printer.
+     */
     public static final byte[] RESET = {0x1b, 0x40};
 
     /**
      * 左对齐
      */
-    /** ESC/POS: align left. */
+    /**
+     * ESC/POS: align left.
+     */
     public static final byte[] ALIGN_LEFT = {0x1b, 0x61, 0x00};
 
     /**
      * 中间对齐
      */
-    /** ESC/POS: align center. */
+    /**
+     * ESC/POS: align center.
+     */
     public static final byte[] ALIGN_CENTER = {0x1b, 0x61, 0x01};
 
     /**
      * 右对齐
      */
-    /** ESC/POS: align right. */
+    /**
+     * ESC/POS: align right.
+     */
     public static final byte[] ALIGN_RIGHT = {0x1b, 0x61, 0x02};
 
     /**
      * 选择加粗模式
      */
-    /** ESC/POS: turn bold mode on. */
+    /**
+     * ESC/POS: turn bold mode on.
+     */
     public static final byte[] BOLD = {0x1b, 0x45, 0x01};
 
     /**
      * 取消加粗模式
      */
-    /** ESC/POS: turn bold mode off. */
+    /**
+     * ESC/POS: turn bold mode off.
+     */
     public static final byte[] BOLD_CANCEL = {0x1b, 0x45, 0x00};
 
     /**
      * 宽高加倍
      */
-    /** ESC/POS: double character width and height. */
+    /**
+     * ESC/POS: double character width and height.
+     */
     public static final byte[] DOUBLE_HEIGHT_WIDTH = {0x1d, 0x21, 0x11};
 
     /**
      * 宽加倍
      */
-    /** ESC/POS: double character width. */
+    /**
+     * ESC/POS: double character width.
+     */
     public static final byte[] DOUBLE_WIDTH = {0x1d, 0x21, 0x10};
 
     /**
      * 高加倍
      */
-    /** ESC/POS: double character height. */
+    /**
+     * ESC/POS: double character height.
+     */
     public static final byte[] DOUBLE_HEIGHT = {0x1d, 0x21, 0x01};
 
     /**
      * 字体不放大
      */
-    /** ESC/POS: normal character size (no enlargement). */
+    /**
+     * ESC/POS: normal character size (no enlargement).
+     */
     public static final byte[] NORMAL = {0x1d, 0x21, 0x00};
 
     /**
      * 设置默认行间距
      */
-    /** ESC/POS: set the default line spacing. */
+    /**
+     * ESC/POS: set the default line spacing.
+     */
     public static final byte[] LINE_SPACING_DEFAULT = {0x1b, 0x32};
 
     /**
@@ -189,60 +221,88 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 32 for 58 mm paper, 48 for wider paper (80 mm). Changed by
      * {@link #setPrinterPageWidth(JSONArray, CallbackContext)}.
      */
-    private static  int LINE_BYTE_SIZE = 48;
+    private static int LINE_BYTE_SIZE = 48;
 
 
     // 对齐方式
     // ---- Alignment values (used in the "aligmentType" JSON field) ----
 
-    /** Alignment: left. */
+    /**
+     * Alignment: left.
+     */
     public static final int ALIGN_LEFT_NEW = 0;     // 靠左
-    
-    /** Alignment: center. */
+
+    /**
+     * Alignment: center.
+     */
     public static final int ALIGN_CENTER_NEW = 1;   // 居中
-    
-    /** Alignment: right. */
-    public static final int ALIGN_RIGHT_NEW  = 2;    // 靠右
+
+    /**
+     * Alignment: right.
+     */
+    public static final int ALIGN_RIGHT_NEW = 2;    // 靠右
 
     //字体大小
     // ---- Font size values (used in the "fontType" JSON field) ----
 
-    /** Font size: normal (1x width, 1x height). */
-    public static final int FONT_NORMAL_NEW  = 0;    // 正常
-    
-    /** Font size: medium (1x width, 2x height). */
+    /**
+     * Font size: normal (1x width, 1x height).
+     */
+    public static final int FONT_NORMAL_NEW = 0;    // 正常
+
+    /**
+     * Font size: medium (1x width, 2x height).
+     */
     public static final int FONT_MIDDLE_NEW = 1;    // 中等
-    
-    /** Font size: big (2x width, 2x height). */
-    public static final int FONT_BIG_NEW  = 2;       // 大
-    
-    /** Font size 3: 2x width, 1x height. */
+
+    /**
+     * Font size: big (2x width, 2x height).
+     */
+    public static final int FONT_BIG_NEW = 2;       // 大
+
+    /**
+     * Font size 3: 2x width, 1x height.
+     */
     public static final int FONT_BIG_NEW3 = 3;    // 字体3
-    
-    /** Font size 4: 1x width, 3x height. */
-    public static final int FONT_BIG_NEW4  = 4;       // 字体4
-    
-    /** Font size 5: 3x width, 2x height. */
+
+    /**
+     * Font size 4: 1x width, 3x height.
+     */
+    public static final int FONT_BIG_NEW4 = 4;       // 字体4
+
+    /**
+     * Font size 5: 3x width, 2x height.
+     */
     public static final int FONT_BIG_NEW5 = 5;    // 字体5
-    
-    /** Font size 6: 3x width, 3x height. */
-    public static final int FONT_BIG_NEW6  = 6;       // 字体6
-    
-    /** Font size 7: 4x width, 4x height. */
-    public static final int FONT_BIG_NEW7  = 7;    // 字体7
-    
-    /** Font size 8: 5x width, 5x height. */
-    public static final int FONT_BIG_NEW8  = 8;       // 字体8
-    
+
+    /**
+     * Font size 6: 3x width, 3x height.
+     */
+    public static final int FONT_BIG_NEW6 = 6;       // 字体6
+
+    /**
+     * Font size 7: 4x width, 4x height.
+     */
+    public static final int FONT_BIG_NEW7 = 7;    // 字体7
+
+    /**
+     * Font size 8: 5x width, 5x height.
+     */
+    public static final int FONT_BIG_NEW8 = 8;       // 字体8
+
     //加粗模式
     // ---- Bold mode values ----
-    
-    /** Bold mode: bold on. */
-    public static final int FONT_BOLD_NEW  = 0;              // 字体加粗
-    
-    /** Bold mode: bold off. */
-    public static final int FONT_BOLD_CANCEL_NEW  = 1;       // 取消加粗
-    
+
+    /**
+     * Bold mode: bold on.
+     */
+    public static final int FONT_BOLD_NEW = 0;              // 字体加粗
+
+    /**
+     * Bold mode: bold off.
+     */
+    public static final int FONT_BOLD_CANCEL_NEW = 1;       // 取消加粗
+
     /**
      * Called by Cordova when the plugin is created. Stores the host activity.
      *
@@ -327,21 +387,21 @@ public class MKBluetoothPrinter extends CordovaPlugin {
             connectDevice(args, callbackContext);
             return true;
         }
-        
+
         //打印
         // Print
         if (action.equals("setPrinterInfoAndPrinter")) {
             printText(args, callbackContext);
             return true;
         }
-        
+
         //断开连接
         // Disconnect
         if (action.equals("stopPeripheralConnection")) {
             closeConnect(args, callbackContext);
             return true;
         }
-        
+
         //在Xcode控制台打印log
         // Print a log message (iOS: Xcode console; no-op on Android)
         if (action.equals("printLog")) {
@@ -383,8 +443,8 @@ public class MKBluetoothPrinter extends CordovaPlugin {
                     bluetoothSocket = device
                             .createRfcommSocketToServiceRecord(uuid);
                     bluetoothSocket.connect();
-                    name_bl=device.getName();
-                    uuid_bl=device.getAddress();
+                    name_bl = device.getName();
+                    uuid_bl = device.getAddress();
                     outputStream = bluetoothSocket.getOutputStream();
                     isConnection = true;
                     callbackContext.success("连接成功");
@@ -399,8 +459,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
 
     /*
-  *设置打印机宽度
-   */
+     *设置打印机宽度
+     */
+
     /**
      * Sets the printer paper width.
      *
@@ -414,14 +475,14 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param callbackContext callback to return the result
      * @throws JSONException if the arguments cannot be parsed
      */
-    public void setPrinterPageWidth(final JSONArray args, final CallbackContext callbackContext)  throws JSONException {
+    public void setPrinterPageWidth(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         String size = "78";
         try {
             size = args.getString(0);
-            if("58".equals(size)){
-                LINE_BYTE_SIZE=32;
-            }else{
-                LINE_BYTE_SIZE=48;
+            if ("58".equals(size)) {
+                LINE_BYTE_SIZE = 32;
+            } else {
+                LINE_BYTE_SIZE = 48;
             }
             callbackContext.success("0");
         } catch (Exception e) {
@@ -431,8 +492,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
 
     /*
-  *获取当前设置的纸张宽度
-   */
+     *获取当前设置的纸张宽度
+     */
+
     /**
      * Returns the paper width currently configured.
      *
@@ -443,18 +505,19 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param callbackContext callback to return the result
      * @throws JSONException if the arguments cannot be parsed
      */
-    public void getCurrentSetPageWidth(final JSONArray args, final CallbackContext callbackContext)  throws JSONException {
+    public void getCurrentSetPageWidth(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         String size = "78";
 
-        if(LINE_BYTE_SIZE==32){
-            size="58";
+        if (LINE_BYTE_SIZE == 32) {
+            size = "58";
         }
         callbackContext.success(size);
 
     }
     /*
-    *是否已连接设备   * 返回： "1":是  "0":否
+     *是否已连接设备   * 返回： "1":是  "0":否
      */
+
     /**
      * Checks whether a printer is connected.
      *
@@ -466,13 +529,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param callbackContext callback to return the result
      * @throws JSONException if the result JSON cannot be built
      */
-    public void isConnectPeripheral(final JSONArray args, final CallbackContext callbackContext)  throws JSONException {
+    public void isConnectPeripheral(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         if (isConnection) {
             JSONArray json = new JSONArray();
-                JSONObject jo = new JSONObject();
-                jo.put("name", name_bl);
-                 jo.put("uuid", uuid_bl);
-                json.put(jo);
+            JSONObject jo = new JSONObject();
+            jo.put("name", name_bl);
+            jo.put("uuid", uuid_bl);
+            json.put(jo);
             callbackContext.success(json);
         } else {
             callbackContext.success("0");
@@ -536,8 +599,8 @@ public class MKBluetoothPrinter extends CordovaPlugin {
                 bluetoothSocket.connect();
                 outputStream = bluetoothSocket.getOutputStream();
                 isConnection = true;
-                name_bl=device.getName();
-                uuid_bl=device.getAddress();
+                name_bl = device.getName();
+                uuid_bl = device.getAddress();
                 callbackContext.success("连接成功");
             } catch (Exception e) {
                 isConnection = false;
@@ -550,8 +613,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
 
     /*
-    *获取已配对的蓝牙设备 keep：是否持续回调 （0：否， 1：是，default:0） 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
+     *获取已配对的蓝牙设备 keep：是否持续回调 （0：否， 1：是，default:0） 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
      */
+
     /**
      * Returns the list of Bluetooth devices already paired with the phone.
      *
@@ -609,8 +673,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
 
     /*
-  * 停止扫描
-   */
+     * 停止扫描
+     */
+
     /**
      * Stops the continuous paired-device lookup started with {@code keep = "1"}.
      *
@@ -648,26 +713,26 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
         if (isConnection) {
             try {
-               if(sendData!=null&&!"".equals(sendData)) {
+                if (sendData != null && !"".equals(sendData)) {
 
 
-                   JSONArray top_array = new JSONArray(sendData);
+                    JSONArray top_array = new JSONArray(sendData);
 
-                   if (top_array != null && top_array.length() > 0) {
-                           for (int m = 0; m < top_array.length(); m++) {
-                               JSONObject jsonData = (JSONObject) top_array.get(m);
-                                sendprint(jsonData);
-                           }
-                       }
+                    if (top_array != null && top_array.length() > 0) {
+                        for (int m = 0; m < top_array.length(); m++) {
+                            JSONObject jsonData = (JSONObject) top_array.get(m);
+                            sendprint(jsonData);
+                        }
+                    }
 
-                   if(LINE_BYTE_SIZE==32){
-                       MKBluetoothPrinter.printText("\n");
-                       MKBluetoothPrinter.printText("\n");
-                       MKBluetoothPrinter.printText("\n");
-                       MKBluetoothPrinter.printText("\n");
-                       MKBluetoothPrinter.printText("\n");
-                   }
-                   //结束循环时
+                    if (LINE_BYTE_SIZE == 32) {
+                        MKBluetoothPrinter.printText("\n");
+                        MKBluetoothPrinter.printText("\n");
+                        MKBluetoothPrinter.printText("\n");
+                        MKBluetoothPrinter.printText("\n");
+                        MKBluetoothPrinter.printText("\n");
+                    }
+                    //结束循环时
                     MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.getCutPaperCmd());
 //                     JSONObject dataJson = new JSONObject(sendData);
 //                   ///获取globalDatatop数据
@@ -722,7 +787,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 //                           }
 //                       }
 //                   }
-               }
+                }
                 callbackContext.success("打印成功！");
             } catch (Exception e) {
                 e.printStackTrace();
@@ -744,136 +809,135 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      *
      * @param jsonData print item (see the class documentation for the fields)
      */
-    public void sendprint(JSONObject jsonData){
+    public void sendprint(JSONObject jsonData) {
 
 
-        try{
-                System.out.println("jsonData:"+jsonData);
-                int infoType = jsonData.optInt("infoType");
-                String text = jsonData.optString("text");
-                int fontType = jsonData.optInt("fontType");
-                int aligmentType = jsonData.optInt("aligmentType");
-                int isTitle = jsonData.optInt("isTitle");
-                int maxWidth = jsonData.optInt("maxWidth");
-                int qrCodeSize = jsonData.optInt("qrCodeSize");
-                JSONArray textArray = jsonData.optJSONArray("textArray");
+        try {
+            System.out.println("jsonData:" + jsonData);
+            int infoType = jsonData.optInt("infoType");
+            String text = jsonData.optString("text");
+            int fontType = jsonData.optInt("fontType");
+            int aligmentType = jsonData.optInt("aligmentType");
+            int isTitle = jsonData.optInt("isTitle");
+            int maxWidth = jsonData.optInt("maxWidth");
+            int qrCodeSize = jsonData.optInt("qrCodeSize");
+            JSONArray textArray = jsonData.optJSONArray("textArray");
 
                                       /*  类型 infoType text= 0;          textList= 1;         barCode = 2;          qrCode = 3;
                                                image  = 4;         seperatorLine   = 5;            spaceLine       = 6;            footer          = 7;*/
 
 
-                int fontType_int = fontType;
-                int aligmentType_int = aligmentType;
-                //                      int fontType_int =0;
-                //                       int aligmentType_int =0;
-                //                       try{
-                //                           fontType_int =Integer.parseInt(fontType);
-                //                       }catch (Exception e){
-                //
-                //                       }
-                //
-                //                       try{
-                //                           aligmentType_int =Integer.parseInt(aligmentType);
-                //                       }catch (Exception e){
-                //
-                //                       }
+            int fontType_int = fontType;
+            int aligmentType_int = aligmentType;
+            //                      int fontType_int =0;
+            //                       int aligmentType_int =0;
+            //                       try{
+            //                           fontType_int =Integer.parseInt(fontType);
+            //                       }catch (Exception e){
+            //
+            //                       }
+            //
+            //                       try{
+            //                           aligmentType_int =Integer.parseInt(aligmentType);
+            //                       }catch (Exception e){
+            //
+            //                       }
 
-                if (isTitle == 1) {
-                    MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.BOLD);
-                } else {
-                    MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.BOLD_CANCEL);
+            if (isTitle == 1) {
+                MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.BOLD);
+            } else {
+                MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.BOLD_CANCEL);
+            }
+            MKBluetoothPrinter.selectCommand(getAlignCmd(aligmentType_int));
+            MKBluetoothPrinter.selectCommand(getFontSizeCmd(fontType_int));
+
+            if (infoType == 0) {
+                MKBluetoothPrinter.printText(text);
+            } else if (infoType == 1) {
+                if (textArray != null && textArray.length() > 0) {
+                    if (textArray.length() == 2) {
+                        MKBluetoothPrinter.printText(MKBluetoothPrinter.printTwoData(textArray.get(0).toString(), textArray.get(1).toString()));
+                    } else if (textArray.length() == 3) {
+                        MKBluetoothPrinter.printText(MKBluetoothPrinter.printThreeData(textArray.get(0).toString(), textArray.get(1).toString(), textArray.get(2).toString()));
+                    } else if (textArray.length() == 4) {
+                        MKBluetoothPrinter.printText(MKBluetoothPrinter.printFourData(textArray.get(0).toString(), textArray.get(1).toString(), textArray.get(2).toString(), textArray.get(3).toString()));
+                    }
                 }
-               MKBluetoothPrinter.selectCommand(getAlignCmd(aligmentType_int));
-                MKBluetoothPrinter.selectCommand(getFontSizeCmd(fontType_int));
-
-                if (infoType == 0) {
-                    MKBluetoothPrinter.printText(text);
-                } else if (infoType == 1) {
-                    if (textArray != null && textArray.length() > 0) {
-                        if (textArray.length() == 2) {
-                           MKBluetoothPrinter.printText(MKBluetoothPrinter.printTwoData(textArray.get(0).toString(), textArray.get(1).toString()));
-                        } else if (textArray.length() == 3) {
-                            MKBluetoothPrinter.printText(MKBluetoothPrinter.printThreeData(textArray.get(0).toString(), textArray.get(1).toString(), textArray.get(2).toString()));
-                        } else if (textArray.length() == 4) {
-                            MKBluetoothPrinter.printText(MKBluetoothPrinter.printFourData(textArray.get(0).toString(), textArray.get(1).toString(), textArray.get(2).toString(), textArray.get(3).toString()));
-                        }
-                    }
-                } else if (infoType == 2) {
-                    MKBluetoothPrinter.printText(getBarcodeCmd(text));
-                } else if (infoType == 3) {
-                    // 发送二维码打印图片前导指令
-                    byte[] start = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1B,
-                            0x40, 0x1B, 0x33, 0x00};
-                   MKBluetoothPrinter.selectCommand(start);
-                   MKBluetoothPrinter.selectCommand(getQrCodeCmd(text));
-                    // 发送结束指令
-                    byte[] end = {0x1d, 0x4c, 0x1f, 0x00};
-                    MKBluetoothPrinter.selectCommand(end);
-                } else if (infoType == 4) {
-                    text = text.replace("data:image/jpeg;base64,", "").replace("data:image/png;base64,", "");
+            } else if (infoType == 2) {
+                MKBluetoothPrinter.printText(getBarcodeCmd(text));
+            } else if (infoType == 3) {
+                // 发送二维码打印图片前导指令
+                byte[] start = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1B,
+                        0x40, 0x1B, 0x33, 0x00};
+                MKBluetoothPrinter.selectCommand(start);
+                MKBluetoothPrinter.selectCommand(getQrCodeCmd(text));
+                // 发送结束指令
+                byte[] end = {0x1d, 0x4c, 0x1f, 0x00};
+                MKBluetoothPrinter.selectCommand(end);
+            } else if (infoType == 4) {
+                text = text.replace("data:image/jpeg;base64,", "").replace("data:image/png;base64,", "");
 
 
-                    /**获取打印图片的数据**/
-                    byte[] bitmapArray;
-                    bitmapArray = Base64.decode(text, Base64.DEFAULT);
-                    for (int n = 0; n < bitmapArray.length; ++n) {
-                        if (bitmapArray[n] < 0) {// 调整异常数据
-                            bitmapArray[n] += 256;
-                        }
-
+                /**获取打印图片的数据**/
+                byte[] bitmapArray;
+                bitmapArray = Base64.decode(text, Base64.DEFAULT);
+                for (int n = 0; n < bitmapArray.length; ++n) {
+                    if (bitmapArray[n] < 0) {// 调整异常数据
+                        bitmapArray[n] += 256;
                     }
 
-                    Bitmap bitmap = BitmapFactory.decodeByteArray(bitmapArray, 0, bitmapArray.length);
+                }
+
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bitmapArray, 0, bitmapArray.length);
 
 
-                    bitmap =compressPic(bitmap);
+                bitmap = compressPic(bitmap);
 
-                    if(bitmap!=null) {
-                        //图片的长和框必须是大于24*size
-                        byte[] draw2PxPoint = draw2PxPoint(bitmap);
-                        //发送打印图片前导指令
-
-                        MKBluetoothPrinter.selectCommand(draw2PxPoint);
-                    }
-
+                if (bitmap != null) {
                     //图片的长和框必须是大于24*size
-                //  byte[] draw2PxPoint = PicFromPrintUtils.draw2PxPoint(bitmap);
+                    byte[] draw2PxPoint = draw2PxPoint(bitmap);
                     //发送打印图片前导指令
 
-                 // MKBluetoothPrinter.selectCommand(draw2PxPoint);
-
-
-
-
-                    //MKBluetoothPrinter.selectCommand(draw2PxPoint);
-                    //InputStream fin = Bitmap2IS(bitmap);
-                   //byte[] buffer = getReadBitMapBytes(bitmap);
-                    //发送打印图片前导指令
-                   //byte[] start = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1B,
-                   //       0x40, 0x1B, 0x33, 0x00 };
-                 //  MKBluetoothPrinter.selectCommand(start);
-                   //MKBluetoothPrinter.selectCommandByte(buffer);
-                      // 发送结束指令
-                  //  byte[] end = { 0x1d, 0x4c, 0x1f, 0x00 };
-                  //  MKBluetoothPrinter.selectCommand(end);
-                    //MKBluetoothPrinter.selectCommand(bitmapArray);
-                    // 发送结束指令
-
-                } else if (infoType == 5) {
-                    MKBluetoothPrinter.printText(printSeperatorLine());
-                } else if (infoType == 6) {
-                    MKBluetoothPrinter.printText("\n");
-                } else if (infoType == 7) {
-                    MKBluetoothPrinter.printText(text);
-                }else if(infoType == 8) {
-                    //结束循环时
-                    MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.getCutPaperCmd());
+                    MKBluetoothPrinter.selectCommand(draw2PxPoint);
                 }
+
+                //图片的长和框必须是大于24*size
+                //  byte[] draw2PxPoint = PicFromPrintUtils.draw2PxPoint(bitmap);
+                //发送打印图片前导指令
+
+                // MKBluetoothPrinter.selectCommand(draw2PxPoint);
+
+
+                //MKBluetoothPrinter.selectCommand(draw2PxPoint);
+                //InputStream fin = Bitmap2IS(bitmap);
+                //byte[] buffer = getReadBitMapBytes(bitmap);
+                //发送打印图片前导指令
+                //byte[] start = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1B,
+                //       0x40, 0x1B, 0x33, 0x00 };
+                //  MKBluetoothPrinter.selectCommand(start);
+                //MKBluetoothPrinter.selectCommandByte(buffer);
+                // 发送结束指令
+                //  byte[] end = { 0x1d, 0x4c, 0x1f, 0x00 };
+                //  MKBluetoothPrinter.selectCommand(end);
+                //MKBluetoothPrinter.selectCommand(bitmapArray);
+                // 发送结束指令
+
+            } else if (infoType == 5) {
+                MKBluetoothPrinter.printText(printSeperatorLine());
+            } else if (infoType == 6) {
                 MKBluetoothPrinter.printText("\n");
+            } else if (infoType == 7) {
+                MKBluetoothPrinter.printText(text);
+            } else if (infoType == 8) {
+                //结束循环时
+                MKBluetoothPrinter.selectCommand(MKBluetoothPrinter.getCutPaperCmd());
+            }
+            MKBluetoothPrinter.printText("\n");
 
 
         } catch (Exception e) {
-            e.printStackTrace();;
+            e.printStackTrace();
+            ;
         }
 
     }
@@ -891,21 +955,21 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @return a new opaque bitmap with the same size, or {@code null} if an error occurs
      */
     public static Bitmap compressPic(Bitmap bitmap) {
-        Bitmap targetBmp =null;
-        try{
+        Bitmap targetBmp = null;
+        try {
             // 获取这个图片的宽和高
             int width = bitmap.getWidth();
             int height = bitmap.getHeight();
             // 指定调整后的宽度和高度
             //int newWidth = 240;
-           // int newHeight = 240;
+            // int newHeight = 240;
             int newWidth = bitmap.getWidth();
-             int newHeight = bitmap.getHeight();
-             targetBmp = Bitmap.createBitmap(newWidth, newHeight, Bitmap.Config.ARGB_8888);
+            int newHeight = bitmap.getHeight();
+            targetBmp = Bitmap.createBitmap(newWidth, newHeight, Bitmap.Config.ARGB_8888);
             Canvas targetCanvas = new Canvas(targetBmp);
             targetCanvas.drawColor(0xffffffff);
             targetCanvas.drawBitmap(bitmap, new Rect(0, 0, width, height), new Rect(0, 0, newWidth, newHeight), null);
-        }catch (Exception e){
+        } catch (Exception e) {
 
         }
         return targetBmp;
@@ -1056,24 +1120,24 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
         byte[] rgb = new byte[3];
 
-        int []pixels = new int[width * height]; //通过位图的大小创建像素点数组
+        int[] pixels = new int[width * height]; //通过位图的大小创建像素点数组
 
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
         /**解析图片 获取位图数据**/
-        for (int j = 0;j < height; j++) {
+        for (int j = 0; j < height; j++) {
             for (int i = 0; i < width; i++) {
                 int pixel = pixels[width * j + i]; /**获取ＲＧＢ值**/
                 int r = Color.red(pixel);
                 int g = Color.green(pixel);
                 int b = Color.blue(pixel);
                 //System.out.println("i=" + i + ",j=" + j + ":(" + r + ","+ g+ "," + b + ")");
-                rgb[0] = (byte)r;
-                rgb[1] = (byte)g;
-                rgb[2] = (byte)b;
-                if (r != 255 || g != 255 || b != 255){//如果不是空白的话用黑色填充    这里如果童鞋要过滤颜色在这里处理
+                rgb[0] = (byte) r;
+                rgb[1] = (byte) g;
+                rgb[2] = (byte) b;
+                if (r != 255 || g != 255 || b != 255) {//如果不是空白的话用黑色填充    这里如果童鞋要过滤颜色在这里处理
                     m1 = (j / 8) * width + i;
                     n1 = j - (j / 8) * 8;
-                    maparray[m1] |= (byte)(1 << 7 - ((byte)n1));
+                    maparray[m1] |= (byte) (1 << 7 - ((byte) n1));
                 }
             }
         }
@@ -1120,6 +1184,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
 
     // 给图片添加水印
+
     /**
      * Draws the current date as a watermark on a copy of the image.
      *
@@ -1134,7 +1199,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         t.setToNow();
         int w = src.getWidth();
         int h = src.getHeight();
-        String mstrTitle = t.year + " 年 " + (t.month +1) + " 月 " + t.monthDay+" 日";
+        String mstrTitle = t.year + " 年 " + (t.month + 1) + " 月 " + t.monthDay + " 日";
         Bitmap bmpTemp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bmpTemp);
         Paint p = new Paint();
@@ -1158,7 +1223,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param bm source bitmap
      * @return an input stream with the PNG-encoded image
      */
-    private static InputStream Bitmap2IS(Bitmap bm){
+    private static InputStream Bitmap2IS(Bitmap bm) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         bm.compress(Bitmap.CompressFormat.PNG, 100, baos);
         InputStream sbs = new ByteArrayInputStream(baos.toByteArray());
@@ -1176,11 +1241,11 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @return the separator string, for example 32 or 48 dashes
      */
     public static String printSeperatorLine() {
-        String seperator="";
-       for (int i=0;i<LINE_BYTE_SIZE;i++){
-           seperator+="-";
-       }
-       return seperator;
+        String seperator = "";
+        for (int i = 0; i < LINE_BYTE_SIZE; i++) {
+            seperator += "-";
+        }
+        return seperator;
     }
     /**
      * 打印文字
@@ -1316,17 +1381,17 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         /**
          * 打印三列时，中间一列的中心线距离打印纸左侧的距离
          */
-       int LEFT_LENGTH =LINE_BYTE_SIZE/2;
+        int LEFT_LENGTH = LINE_BYTE_SIZE / 2;
 
         /**
          * 打印三列时，中间一列的中心线距离打印纸右侧的距离
          */
-        int RIGHT_LENGTH = LINE_BYTE_SIZE/2;
+        int RIGHT_LENGTH = LINE_BYTE_SIZE / 2;
 
         /**
          * 打印三列时，第一列汉字最多显示几个文字
          */
-        int LEFT_TEXT_MAX_LENGTH = LEFT_LENGTH/2-2;
+        int LEFT_TEXT_MAX_LENGTH = LEFT_LENGTH / 2 - 2;
 
         StringBuilder sb = new StringBuilder();
         // 左边最多显示 LEFT_TEXT_MAX_LENGTH 个汉字 + 两个点
@@ -1384,29 +1449,29 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         /**
          * 打印三列时，中间一列的中心线距离打印纸左侧的距离
          */
-        int LEFT_LENGTH =LINE_BYTE_SIZE;
+        int LEFT_LENGTH = LINE_BYTE_SIZE;
 
         /**
          * 打印三列时，中间一列的中心线距离打印纸右侧的距离
          */
-      //  int RIGHT_LENGTH_1 = LEFT_LENGTH-20;
+        //  int RIGHT_LENGTH_1 = LEFT_LENGTH-20;
         int RIGHT_LENGTH_2 = 6;
         int RIGHT_LENGTH_3 = 6;
         int RIGHT_LENGTH_4 = 8;
-        int RIGHT_LENGTH_1 = LEFT_LENGTH-RIGHT_LENGTH_2-RIGHT_LENGTH_3-RIGHT_LENGTH_4;
+        int RIGHT_LENGTH_1 = LEFT_LENGTH - RIGHT_LENGTH_2 - RIGHT_LENGTH_3 - RIGHT_LENGTH_4;
         /**
          * 打印三列时，第一列汉字最多显示几个文字
          */
 
-        int sub_length=2;
-        if(LINE_BYTE_SIZE==32){
-            sub_length=0;
+        int sub_length = 2;
+        if (LINE_BYTE_SIZE == 32) {
+            sub_length = 0;
         }
 
         int leftTextLength = getBytesLength(leftText);
         int middle1TextLength = getBytesLength(middleText1);
         int middle2TextLength = getBytesLength(middleText2);
-       // int rightTextLength = getBytesLength(rightText);
+        // int rightTextLength = getBytesLength(rightText);
 
         sb.append(leftText);
 
@@ -1416,12 +1481,12 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
         sb.append(middleText1);
 
-        for (int i = RIGHT_LENGTH_1+middle1TextLength; i < RIGHT_LENGTH_1+RIGHT_LENGTH_2; i++) {
+        for (int i = RIGHT_LENGTH_1 + middle1TextLength; i < RIGHT_LENGTH_1 + RIGHT_LENGTH_2; i++) {
             sb.append(" ");
         }
         sb.append(middleText2);
 
-        for (int i = RIGHT_LENGTH_1+RIGHT_LENGTH_2+middle2TextLength; i < RIGHT_LENGTH_1+RIGHT_LENGTH_2+RIGHT_LENGTH_3; i++) {
+        for (int i = RIGHT_LENGTH_1 + RIGHT_LENGTH_2 + middle2TextLength; i < RIGHT_LENGTH_1 + RIGHT_LENGTH_2 + RIGHT_LENGTH_3; i++) {
             sb.append(" ");
         }
 
@@ -1429,7 +1494,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
 
         // 打印的时候发现，最右边的文字总是偏右一个字符，所以需要删除一个空格
-       // sb.delete(sb.length() - 3, sb.length()).append(rightText);
+        // sb.delete(sb.length() - 3, sb.length()).append(rightText);
         return sb.toString();
     }
     /**
@@ -1459,31 +1524,31 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         /**
          * 打印三列时，中间一列的中心线距离打印纸左侧的距离
          */
-        int LEFT_LENGTH =LINE_BYTE_SIZE/2;
+        int LEFT_LENGTH = LINE_BYTE_SIZE / 2;
 
         /**
          * 打印三列时，中间一列的中心线距离打印纸右侧的距离
          */
-        int RIGHT_LENGTH = LINE_BYTE_SIZE/2;
+        int RIGHT_LENGTH = LINE_BYTE_SIZE / 2;
 
         /**
          * 打印三列时，第一列汉字最多显示几个文字
          */
 
-        int sub_length=2;
-        if(LINE_BYTE_SIZE==32){
-            sub_length=0;
+        int sub_length = 2;
+        if (LINE_BYTE_SIZE == 32) {
+            sub_length = 0;
         }
 
-        int sub_length2=1;
-       // if(LINE_BYTE_SIZE==32){
-          //  sub_length2=1;
-      //  }
+        int sub_length2 = 1;
+        // if(LINE_BYTE_SIZE==32){
+        //  sub_length2=1;
+        //  }
 
-        int LEFT_TEXT_MAX_LENGTH = LEFT_LENGTH/2-sub_length;
+        int LEFT_TEXT_MAX_LENGTH = LEFT_LENGTH / 2 - sub_length;
 
         // 左边最多显示 LEFT_TEXT_MAX_LENGTH 个汉字 + 两个点
-        if (leftText.length() > (LEFT_TEXT_MAX_LENGTH+2)/2) {
+        if (leftText.length() > (LEFT_TEXT_MAX_LENGTH + 2) / 2) {
             //leftText = leftText.substring(0, (LEFT_TEXT_MAX_LENGTH+2)/2-1) + ".";
         }
         int leftTextLength = getBytesLength(leftText);
@@ -1493,26 +1558,26 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
         sb.append(leftText);
         // 计算左侧文字和中间文字的空格长度
-        int marginBetweenLeftAndMiddle1 = LEFT_LENGTH- leftTextLength - middle1TextLength ;
+        int marginBetweenLeftAndMiddle1 = LEFT_LENGTH - leftTextLength - middle1TextLength;
 
-        for (int i = LEFT_LENGTH/4-sub_length2; i < marginBetweenLeftAndMiddle1; i++) {
+        for (int i = LEFT_LENGTH / 4 - sub_length2; i < marginBetweenLeftAndMiddle1; i++) {
             sb.append(" ");
         }
         sb.append(middleText1);
 
 
         // 计算右侧文字和中间文字的空格长度
-        int marginBetweenMiddleAndRight = RIGHT_LENGTH- middle2TextLength - rightTextLength;
+        int marginBetweenMiddleAndRight = RIGHT_LENGTH - middle2TextLength - rightTextLength;
 
-        for (int i = RIGHT_LENGTH/4-sub_length2; i < marginBetweenMiddleAndRight; i++) {
+        for (int i = RIGHT_LENGTH / 4 - sub_length2; i < marginBetweenMiddleAndRight; i++) {
             sb.append(" ");
         }
         sb.append(middleText2);
 
         // 计算右侧文字和中间文字的空格长度
-        int marginBetweenMiddle2AndRight = RIGHT_LENGTH - middle2TextLength  - rightTextLength;
+        int marginBetweenMiddle2AndRight = RIGHT_LENGTH - middle2TextLength - rightTextLength;
 
-        for (int i = RIGHT_LENGTH/4-sub_length2; i < marginBetweenMiddle2AndRight; i++) {
+        for (int i = RIGHT_LENGTH / 4 - sub_length2; i < marginBetweenMiddle2AndRight; i++) {
             sb.append(" ");
         }
         // 打印的时候发现，最右边的文字总是偏右一个字符，所以需要删除一个空格
@@ -1629,7 +1694,6 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
 
 
-
     /**
      * 打印二维码
      * @param qrCode
@@ -1643,7 +1707,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param qrCode the content to encode
      * @return the command bytes to send to the printer
      */
-    public static  byte[]  getQrCodeCmd(String qrCode) {
+    public static byte[] getQrCodeCmd(String qrCode) {
         byte[] data;
         int store_len = qrCode.length() + 3;
         byte store_pL = (byte) (store_len % 256);
@@ -1653,30 +1717,30 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         //              Hex     1D      28      6B      04      00      31      41      n1(x32)     n2(x00) - size of model
         // set n1 [49 x31, model 1] [50 x32, model 2] [51 x33, micro qr code]
         // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn165.html
-        byte[] modelQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x04, (byte)0x00, (byte)0x31, (byte)0x41, (byte)0x32, (byte)0x00};
+        byte[] modelQR = {(byte) 0x1d, (byte) 0x28, (byte) 0x6b, (byte) 0x04, (byte) 0x00, (byte) 0x31, (byte) 0x41, (byte) 0x32, (byte) 0x00};
 
         // QR Code: Set the size of module
         // Hex      1D      28      6B      03      00      31      43      n
         // n depends on the printer
         // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn167.html
-        byte[] sizeQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x03, (byte)0x00, (byte)0x31, (byte)0x43, (byte)0x08};
+        byte[] sizeQR = {(byte) 0x1d, (byte) 0x28, (byte) 0x6b, (byte) 0x03, (byte) 0x00, (byte) 0x31, (byte) 0x43, (byte) 0x08};
 
         // QR Code: Select the error correction level
         //          Hex     1D      28      6B      03      00      31      45      n
         // Set n for error correction [48 x30 -> 7%] [49 x31-> 15%] [50 x32 -> 25%] [51 x33 -> 30%]
         // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn169.html
-        byte[] errorQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x03, (byte)0x00, (byte)0x31, (byte)0x45, (byte)0x31};
+        byte[] errorQR = {(byte) 0x1d, (byte) 0x28, (byte) 0x6b, (byte) 0x03, (byte) 0x00, (byte) 0x31, (byte) 0x45, (byte) 0x31};
 
         // QR Code: Store the data in the symbol storage area
         // Hex      1D      28      6B      pL      pH      31      50      30      d1...dk
         // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn180.html
         //                        1D          28          6B         pL          pH  cn(49->x31) fn(80->x50) m(48->x30) d1…dk
-        byte[] storeQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, store_pL, store_pH, (byte)0x31, (byte)0x50, (byte)0x30};
+        byte[] storeQR = {(byte) 0x1d, (byte) 0x28, (byte) 0x6b, store_pL, store_pH, (byte) 0x31, (byte) 0x50, (byte) 0x30};
 
         // QR Code: Print the symbol data in the symbol storage area
         // Hex      1D      28      6B      03      00      31      51      m
         // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn181.html
-        byte[] printQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x03, (byte)0x00, (byte)0x31, (byte)0x51, (byte)0x30};
+        byte[] printQR = {(byte) 0x1d, (byte) 0x28, (byte) 0x6b, (byte) 0x03, (byte) 0x00, (byte) 0x31, (byte) 0x51, (byte) 0x30};
 
         data = byteMerger(modelQR, sizeQR);
         data = byteMerger(data, errorQR);
@@ -1804,7 +1868,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      *
      * @return the cut command bytes
      */
-    public static  byte[] getCutPaperCmd() {
+    public static byte[] getCutPaperCmd() {
         // 走纸并切纸，最后一个参数控制走纸的长度
         byte[] data = {(byte) 0x1d, (byte) 0x56, (byte) 0x42, (byte) 0x15};
 
@@ -1822,13 +1886,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param alignMode {@link #ALIGN_LEFT_NEW}, {@link #ALIGN_CENTER_NEW} or {@link #ALIGN_RIGHT_NEW}
      * @return the {@code ESC a n} command bytes (left alignment for unknown values)
      */
-    public static  byte[]  getAlignCmd(int alignMode) {
+    public static byte[] getAlignCmd(int alignMode) {
         byte[] data = {(byte) 0x1b, (byte) 0x61, (byte) 0x0};
-        if (alignMode == ALIGN_LEFT_NEW ) {
+        if (alignMode == ALIGN_LEFT_NEW) {
             data[2] = (byte) 0x00;
-        } else if (alignMode == ALIGN_CENTER_NEW ) {
+        } else if (alignMode == ALIGN_CENTER_NEW) {
             data[2] = (byte) 0x01;
-        } else if (alignMode == ALIGN_RIGHT_NEW ) {
+        } else if (alignMode == ALIGN_RIGHT_NEW) {
             data[2] = (byte) 0x02;
         }
 
@@ -1848,25 +1912,25 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param fontSize one of the {@code FONT_*_NEW} constants
      * @return the command bytes (normal size for unknown values)
      */
-    public static  byte[]  getFontSizeCmd(int fontSize) {
+    public static byte[] getFontSizeCmd(int fontSize) {
         byte[] data = {(byte) 0x1d, (byte) 0x21, (byte) 0x0};
-        if (fontSize == FONT_NORMAL_NEW ) {
+        if (fontSize == FONT_NORMAL_NEW) {
             data[2] = (byte) 0x00;
-        } else if (fontSize == FONT_MIDDLE_NEW ) {
+        } else if (fontSize == FONT_MIDDLE_NEW) {
             data[2] = (byte) 0x01;
-        } else if (fontSize == FONT_BIG_NEW ) {
+        } else if (fontSize == FONT_BIG_NEW) {
             data[2] = (byte) 0x11;
-        }else if (fontSize == FONT_BIG_NEW3 ) {
+        } else if (fontSize == FONT_BIG_NEW3) {
             data[2] = (byte) 0x10;
-        }else if (fontSize == FONT_BIG_NEW4 ) {
+        } else if (fontSize == FONT_BIG_NEW4) {
             data[2] = (byte) 0x12;
-        }else if (fontSize == FONT_BIG_NEW5 ) {
+        } else if (fontSize == FONT_BIG_NEW5) {
             data[2] = (byte) 0x21;
-        }else if (fontSize == FONT_BIG_NEW6 ) {
+        } else if (fontSize == FONT_BIG_NEW6) {
             data[2] = (byte) 0x22;
-        }else if (fontSize == FONT_BIG_NEW7 ) {
+        } else if (fontSize == FONT_BIG_NEW7) {
             data[2] = (byte) 0x33;
-        }else if (fontSize == FONT_BIG_NEW8 ) {
+        } else if (fontSize == FONT_BIG_NEW8) {
             data[2] = (byte) 0x44;
         }
 
@@ -1885,12 +1949,12 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      *                 {@link #FONT_BOLD_CANCEL_NEW} turns it off
      * @return the command bytes
      */
-    public static  byte[]  getFontBoldCmd(int fontBold) {
+    public static byte[] getFontBoldCmd(int fontBold) {
         byte[] data = {(byte) 0x1b, (byte) 0x45, (byte) 0x0};
 
-        if (fontBold == FONT_BOLD_NEW ) {
+        if (fontBold == FONT_BOLD_NEW) {
             data[2] = (byte) 0x01;
-        } else if (fontBold == FONT_BOLD_CANCEL_NEW ) {
+        } else if (fontBold == FONT_BOLD_CANCEL_NEW) {
             data[2] = (byte) 0x00;
         }
 
