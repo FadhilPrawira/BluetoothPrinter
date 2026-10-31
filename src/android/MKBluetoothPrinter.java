@@ -46,6 +46,48 @@ import java.util.UUID;
 // import android.view.ContextThemeWrapper;
 
 
+/**
+ * Cordova plugin that prints receipts on Bluetooth ESC/POS thermal printers.
+ *
+ * <p>The plugin talks to a paired printer over a classic Bluetooth (RFCOMM / SPP)
+ * socket and sends raw ESC/POS commands. It supports text, multi-column text
+ * (2, 3 and 4 columns), Code-128 barcodes, QR codes, bitmap images, separator
+ * lines and paper cutting.</p>
+ *
+ * <h2>Supported Cordova actions</h2>
+ * <table border="1">
+ *   <caption>Actions exposed to JavaScript</caption>
+ *   <tr><th>Action</th><th>Description</th></tr>
+ *   <tr><td>{@code autoConnectPeripheral}</td><td>Reconnect to the last used printer.</td></tr>
+ *   <tr><td>{@code setPrinterPageWidth}</td><td>Set paper width ("58" or other, treated as 80 mm).</td></tr>
+ *   <tr><td>{@code getCurrentSetPageWidth}</td><td>Get the paper width currently configured.</td></tr>
+ *   <tr><td>{@code isConnectPeripheral}</td><td>Check whether a printer is connected.</td></tr>
+ *   <tr><td>{@code scanForPeripherals} / {@code getPeripherals}</td><td>List paired Bluetooth devices.</td></tr>
+ *   <tr><td>{@code stopScan}</td><td>Stop the continuous device lookup.</td></tr>
+ *   <tr><td>{@code connectPeripheral}</td><td>Connect to a printer by MAC address.</td></tr>
+ *   <tr><td>{@code setPrinterInfoAndPrinter}</td><td>Print a JSON list of print items.</td></tr>
+ *   <tr><td>{@code stopPeripheralConnection}</td><td>Disconnect from the printer.</td></tr>
+ *   <tr><td>{@code printLog}</td><td>Reserved (no-op).</td></tr>
+ * </table>
+ *
+ * <h2>Print item JSON format</h2>
+ * <p>{@code setPrinterInfoAndPrinter} receives a JSON array. Each element is an object with:</p>
+ * <ul>
+ *   <li>{@code infoType} - item type: 0 = text, 1 = text list (columns), 2 = barcode,
+ *       3 = QR code, 4 = image (Base64), 5 = separator line, 6 = blank line,
+ *       7 = footer text, 8 = cut paper</li>
+ *   <li>{@code text} - text, barcode/QR content, or Base64 image data</li>
+ *   <li>{@code textArray} - column values for {@code infoType} 1 (2, 3 or 4 entries)</li>
+ *   <li>{@code fontType} - font size, see {@code FONT_*_NEW} constants</li>
+ *   <li>{@code aligmentType} - alignment, see {@code ALIGN_*_NEW} constants</li>
+ *   <li>{@code isTitle} - 1 prints the item in bold</li>
+ *   <li>{@code maxWidth}, {@code qrCodeSize} - parsed but currently unused</li>
+ * </ul>
+ *
+ * <p><b>Note:</b> the callback messages returned to JavaScript are in Chinese
+ * (for example connection success / failure). They are kept unchanged so that
+ * existing JavaScript code comparing those strings keeps working.</p>
+ */
 public class MKBluetoothPrinter extends CordovaPlugin {
 
     private BluetoothAdapter mBluetoothAdapter;
@@ -54,96 +96,159 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     private String boothAddress = "";
     private String oneModel, drawingRev, oneClass, oneCode, chipId, dateTime, specification = "";
 
+    /** Whether a Bluetooth printer is currently connected. */
     private boolean isConnection = false;//蓝牙是否连接
+    
+    /** Whether device lookup keeps polling until paired devices are found. */
     private boolean isKeep = false;//蓝牙持续回调
     private BluetoothDevice device = null;
     private static BluetoothSocket bluetoothSocket = null;
     private static OutputStream outputStream = null;
+    
+    /** Standard Serial Port Profile (SPP) UUID used for RFCOMM connections. */
     private static final UUID uuid = UUID
             .fromString("00001101-0000-1000-8000-00805F9B34FB");
+    
+    /** MAC address of the connected printer (returned to JavaScript as "uuid"). */
     private static  String  uuid_bl ="";
+    
+    /** Name of the connected printer. */
     private static  String name_bl ="";
 
     /**
      * 复位打印机
      */
+    /** ESC/POS: initialize (reset) the printer. */
     public static final byte[] RESET = {0x1b, 0x40};
 
     /**
      * 左对齐
      */
+    /** ESC/POS: align left. */
     public static final byte[] ALIGN_LEFT = {0x1b, 0x61, 0x00};
 
     /**
      * 中间对齐
      */
+    /** ESC/POS: align center. */
     public static final byte[] ALIGN_CENTER = {0x1b, 0x61, 0x01};
 
     /**
      * 右对齐
      */
+    /** ESC/POS: align right. */
     public static final byte[] ALIGN_RIGHT = {0x1b, 0x61, 0x02};
 
     /**
      * 选择加粗模式
      */
+    /** ESC/POS: turn bold mode on. */
     public static final byte[] BOLD = {0x1b, 0x45, 0x01};
 
     /**
      * 取消加粗模式
      */
+    /** ESC/POS: turn bold mode off. */
     public static final byte[] BOLD_CANCEL = {0x1b, 0x45, 0x00};
 
     /**
      * 宽高加倍
      */
+    /** ESC/POS: double character width and height. */
     public static final byte[] DOUBLE_HEIGHT_WIDTH = {0x1d, 0x21, 0x11};
 
     /**
      * 宽加倍
      */
+    /** ESC/POS: double character width. */
     public static final byte[] DOUBLE_WIDTH = {0x1d, 0x21, 0x10};
 
     /**
      * 高加倍
      */
+    /** ESC/POS: double character height. */
     public static final byte[] DOUBLE_HEIGHT = {0x1d, 0x21, 0x01};
 
     /**
      * 字体不放大
      */
+    /** ESC/POS: normal character size (no enlargement). */
     public static final byte[] NORMAL = {0x1d, 0x21, 0x00};
 
     /**
      * 设置默认行间距
      */
+    /** ESC/POS: set the default line spacing. */
     public static final byte[] LINE_SPACING_DEFAULT = {0x1b, 0x32};
 
     /**
      * 打印纸一行最大的字节
      */
+    /**
+     * Maximum number of characters (bytes) that fit on one printed line.
+     * 32 for 58 mm paper, 48 for wider paper (80 mm). Changed by
+     * {@link #setPrinterPageWidth(JSONArray, CallbackContext)}.
+     */
     private static  int LINE_BYTE_SIZE = 48;
 
 
     // 对齐方式
+    // ---- Alignment values (used in the "aligmentType" JSON field) ----
+
+    /** Alignment: left. */
     public static final int ALIGN_LEFT_NEW = 0;     // 靠左
+    
+    /** Alignment: center. */
     public static final int ALIGN_CENTER_NEW = 1;   // 居中
+    
+    /** Alignment: right. */
     public static final int ALIGN_RIGHT_NEW  = 2;    // 靠右
 
     //字体大小
-    public static final int FONT_NORMAL_NEW  = 0;    // 正常
-    public static final int FONT_MIDDLE_NEW = 1;    // 中等
-    public static final int FONT_BIG_NEW  = 2;       // 大
-    public static final int FONT_BIG_NEW3 = 3;    // 字体3
-    public static final int FONT_BIG_NEW4  = 4;       // 字体4
-    public static final int FONT_BIG_NEW5 = 5;    // 字体5
-    public static final int FONT_BIG_NEW6  = 6;       // 字体6
-    public static final int FONT_BIG_NEW7  = 7;    // 字体7
-    public static final int FONT_BIG_NEW8  = 8;       // 字体8
-    //加粗模式
-    public static final int FONT_BOLD_NEW  = 0;              // 字体加粗
-    public static final int FONT_BOLD_CANCEL_NEW  = 1;       // 取消加粗
+    // ---- Font size values (used in the "fontType" JSON field) ----
 
+    /** Font size: normal (1x width, 1x height). */
+    public static final int FONT_NORMAL_NEW  = 0;    // 正常
+    
+    /** Font size: medium (1x width, 2x height). */
+    public static final int FONT_MIDDLE_NEW = 1;    // 中等
+    
+    /** Font size: big (2x width, 2x height). */
+    public static final int FONT_BIG_NEW  = 2;       // 大
+    
+    /** Font size 3: 2x width, 1x height. */
+    public static final int FONT_BIG_NEW3 = 3;    // 字体3
+    
+    /** Font size 4: 1x width, 3x height. */
+    public static final int FONT_BIG_NEW4  = 4;       // 字体4
+    
+    /** Font size 5: 3x width, 2x height. */
+    public static final int FONT_BIG_NEW5 = 5;    // 字体5
+    
+    /** Font size 6: 3x width, 3x height. */
+    public static final int FONT_BIG_NEW6  = 6;       // 字体6
+    
+    /** Font size 7: 4x width, 4x height. */
+    public static final int FONT_BIG_NEW7  = 7;    // 字体7
+    
+    /** Font size 8: 5x width, 5x height. */
+    public static final int FONT_BIG_NEW8  = 8;       // 字体8
+    
+    //加粗模式
+    // ---- Bold mode values ----
+    
+    /** Bold mode: bold on. */
+    public static final int FONT_BOLD_NEW  = 0;              // 字体加粗
+    
+    /** Bold mode: bold off. */
+    public static final int FONT_BOLD_CANCEL_NEW  = 1;       // 取消加粗
+    
+    /**
+     * Called by Cordova when the plugin is created. Stores the host activity.
+     *
+     * @param cordova the Cordova interface
+     * @param webView the Cordova web view
+     */
     @Override
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
         super.initialize(cordova, webView);
@@ -152,45 +257,64 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
     }
 
-
+    /**
+     * Entry point for calls coming from JavaScript. Dispatches the action to the
+     * matching method.
+     *
+     * @param action          action name (see the class documentation)
+     * @param args            arguments passed from JavaScript
+     * @param callbackContext callback used to return the result to JavaScript
+     * @return {@code true} if the action is known and handled, {@code false} otherwise
+     * @throws JSONException if the arguments cannot be parsed
+     */
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
         //自动连接 历史连接过的设备
+        // Auto-connect to a previously connected device
         if (action.equals("autoConnectPeripheral")) {
             autoConnect(args, callbackContext);
             return true;
         }
 
         //设置打印机宽度
+        // Set printer paper width
         if (action.equals("setPrinterPageWidth")) {
             setPrinterPageWidth(args, callbackContext);
             return true;
         }
 
         //获取当前设置的纸张宽度
+        // Get the currently configured paper width
         if (action.equals("getCurrentSetPageWidth")) {
             getCurrentSetPageWidth(args, callbackContext);
             return true;
         }
 
         //是否已连接设备   * 返回： "1":是  "0":否
+        // Is a device connected? Returns "1": yes, "0": no
         if (action.equals("isConnectPeripheral")) {
             isConnectPeripheral(args, callbackContext);
             return true;
         }
 
         //获取已配对的蓝牙设备 keep：是否持续回调 （0：否， 1：是，default:0） 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
+        // List paired Bluetooth devices.
+        // keep: keep polling until devices are found (0: no, 1: yes, default: 0)
+        // Result example: [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
         if (action.equals("scanForPeripherals")) {
             getPairedDevices(args, callbackContext);
             return true;
         }
 
         //停止扫描
+        // Stop scanning
         if (action.equals("stopScan")) {
             stopScan(args, callbackContext);
             return true;
         }
 
         //获取已配对的蓝牙设备 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
+        // List paired Bluetooth devices
+        // Result example: [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
         if (action.equals("getPeripherals")) {
             getPairedDevices(args, callbackContext);
             return true;
@@ -198,21 +322,28 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
 
         //连接选中的蓝牙设备(打印机)
+        // Connect to the selected Bluetooth device (printer)
         if (action.equals("connectPeripheral")) {
             connectDevice(args, callbackContext);
             return true;
         }
+        
         //打印
+        // Print
         if (action.equals("setPrinterInfoAndPrinter")) {
             printText(args, callbackContext);
             return true;
         }
+        
         //断开连接
+        // Disconnect
         if (action.equals("stopPeripheralConnection")) {
             closeConnect(args, callbackContext);
             return true;
         }
+        
         //在Xcode控制台打印log
+        // Print a log message (iOS: Xcode console; no-op on Android)
         if (action.equals("printLog")) {
             printLog(args, callbackContext);
             return true;
@@ -221,7 +352,16 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         return false;
     }
 
-
+    /**
+     * Reconnects to the last used printer. The MAC address is read from the
+     * {@code "device"} SharedPreferences (key {@code "address"}) and matched against
+     * the list of bonded devices.
+     *
+     * <p>Callback: success ("connection successful") or error ("connection failed").</p>
+     *
+     * @param args            unused
+     * @param callbackContext callback to return the result
+     */
     public void autoConnect(final JSONArray args, final CallbackContext callbackContext) {
         SharedPreferences pref = activity.getSharedPreferences("device", activity.MODE_PRIVATE);
         String deviceAddress = pref.getString("address", "");
@@ -261,6 +401,19 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     /*
   *设置打印机宽度
    */
+    /**
+     * Sets the printer paper width.
+     *
+     * <p>The first argument is the width in millimetres as a string. {@code "58"}
+     * sets {@link #LINE_BYTE_SIZE} to 32 characters per line; any other value
+     * sets it to 48 characters per line.</p>
+     *
+     * <p>Callback: success {@code "0"} on success, success {@code "1"} on failure.</p>
+     *
+     * @param args            {@code args[0]} = paper width, for example "58" or "80"
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the arguments cannot be parsed
+     */
     public void setPrinterPageWidth(final JSONArray args, final CallbackContext callbackContext)  throws JSONException {
         String size = "78";
         try {
@@ -280,6 +433,16 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     /*
   *获取当前设置的纸张宽度
    */
+    /**
+     * Returns the paper width currently configured.
+     *
+     * <p>Callback: success {@code "58"} if the line size is 32 characters,
+     * otherwise {@code "78"}.</p>
+     *
+     * @param args            unused
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the arguments cannot be parsed
+     */
     public void getCurrentSetPageWidth(final JSONArray args, final CallbackContext callbackContext)  throws JSONException {
         String size = "78";
 
@@ -291,6 +454,17 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
     /*
     *是否已连接设备   * 返回： "1":是  "0":否
+     */
+    /**
+     * Checks whether a printer is connected.
+     *
+     * <p>Callback: if connected, a JSON array with one object
+     * {@code [{"name": ..., "uuid": ...}]} describing the printer; otherwise
+     * the string {@code "0"}.</p>
+     *
+     * @param args            unused
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the result JSON cannot be built
      */
     public void isConnectPeripheral(final JSONArray args, final CallbackContext callbackContext)  throws JSONException {
         if (isConnection) {
@@ -305,10 +479,26 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         }
     }
 
+    /**
+     * Reserved for logging from JavaScript. Currently does nothing on Android.
+     *
+     * @param args            unused
+     * @param callbackContext unused
+     */
     private void printLog(JSONArray args, CallbackContext callbackContext) {
 
     }
 
+    /**
+     * Closes the Bluetooth socket and output stream and marks the printer as
+     * disconnected.
+     *
+     * <p>Callback: success ("disconnected") or error ("disconnect failed").</p>
+     *
+     * @param args            unused
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the arguments cannot be parsed
+     */
     private void closeConnect(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         try {
             bluetoothSocket.close();
@@ -324,6 +514,16 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         }
     }
 
+    /**
+     * Connects to a Bluetooth printer by MAC address using an RFCOMM socket.
+     * If a connection already exists, it simply reports success.
+     *
+     * <p>Callback: success ("connection successful") or error ("connection failed").</p>
+     *
+     * @param args            {@code args[0]} = Bluetooth MAC address of the printer
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the address argument is missing
+     */
     private void connectDevice(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         final String address = args.getString(0);
         // Get the local Bluetooth adapter
@@ -351,6 +551,21 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
     /*
     *获取已配对的蓝牙设备 keep：是否持续回调 （0：否， 1：是，default:0） 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
+     */
+    /**
+     * Returns the list of Bluetooth devices already paired with the phone.
+     *
+     * <p>If {@code keep} is {@code "1"}, the method keeps polling until at least
+     * one paired device exists (it blocks until then, or until {@link #stopScan}
+     * clears the flag).</p>
+     *
+     * <p>Callback: success with a JSON array such as
+     * {@code [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]};
+     * error ("no paired Bluetooth device") if the list is empty.</p>
+     *
+     * @param args            {@code args[0]} (optional) = keep polling flag, "0" or "1" (default "0")
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the result JSON cannot be built
      */
     private void getPairedDevices(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         // Get the local Bluetooth adapter
@@ -396,6 +611,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     /*
   * 停止扫描
    */
+    /**
+     * Stops the continuous paired-device lookup started with {@code keep = "1"}.
+     *
+     * <p>Callback: success ("scan stopped").</p>
+     *
+     * @param args            unused
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the arguments cannot be parsed
+     */
     private void stopScan(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         // Get the local Bluetooth adapter
         isKeep = false;
@@ -403,6 +627,21 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
     }
 
+    /**
+     * Prints a list of print items.
+     *
+     * <p>{@code args[0]} is a JSON array string. Each element is passed to
+     * {@link #sendprint(JSONObject)}. For 58 mm paper, five blank lines are
+     * added at the end so the printed content clears the cutter. A paper cut
+     * command is then sent.</p>
+     *
+     * <p>Callback: success ("print successful"), or error ("print failed" plus the
+     * exception message), or error ("device not connected, please reconnect").</p>
+     *
+     * @param args            {@code args[0]} = JSON array string of print items
+     * @param callbackContext callback to return the result
+     * @throws JSONException if the first argument is missing
+     */
     private void printText(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
 
         String sendData = args.getString(0);
@@ -494,6 +733,17 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         }
     }
 
+    /**
+     * Prints a single print item described by a JSON object.
+     *
+     * <p>It first applies bold, alignment and font size, then prints according to
+     * {@code infoType}: 0 = text, 1 = columns, 2 = barcode, 3 = QR code,
+     * 4 = image, 5 = separator line, 6 = blank line, 7 = footer text,
+     * 8 = cut paper. A newline is written after each item. Exceptions are
+     * caught and logged, so one bad item does not stop the whole print job.</p>
+     *
+     * @param jsonData print item (see the class documentation for the fields)
+     */
     public void sendprint(JSONObject jsonData){
 
 
@@ -633,6 +883,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      *
      * @param
      */
+    /**
+     * Redraws a bitmap onto a white background, removing transparency
+     * (transparent pixels would otherwise print as black).
+     *
+     * @param bitmap source bitmap
+     * @return a new opaque bitmap with the same size, or {@code null} if an error occurs
+     */
     public static Bitmap compressPic(Bitmap bitmap) {
         Bitmap targetBmp =null;
         try{
@@ -662,6 +919,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param bit 位图
      * @return
      */
+    /**
+     * Converts one pixel to a black/white bit. Black is 1 and white is 0
+     * (gray value below 128 is treated as black).
+     *
+     * @param x   x coordinate
+     * @param y   y coordinate
+     * @param bit source bitmap
+     * @return 1 for a black pixel, 0 for a white pixel or when the coordinates are out of range
+     */
     public static byte px2Byte(int x, int y, Bitmap bit) {
         if (x < bit.getWidth() && y < bit.getHeight()) {
             byte b;
@@ -683,6 +949,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     /**
      * 图片灰度的转化
      */
+    /**
+     * Converts an RGB color to a gray level using the standard luminance formula
+     * (0.299 R + 0.587 G + 0.114 B).
+     *
+     * @param r red (0-255)
+     * @param g green (0-255)
+     * @param b blue (0-255)
+     * @return gray value (0-255)
+     */
     private static int RGB2Gray(int r, int g, int b) {
         int gray = (int) (0.29900 * r + 0.58700 * g + 0.11400 * b);  //灰度转化公式
         return gray;
@@ -698,6 +973,25 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      *
      * @param bmp
      * @return
+     */
+    /*
+     * Example: a 240x240 image printed at 24-dot resolution is sent as 10 strips.
+     * Each strip is a 240x24 dot matrix: every column has 24 dots stored in
+     * 3 bytes, and each byte holds 8 pixels. Because the image is monochrome,
+     * a bit value of 1 is black and 0 is white.
+     */
+
+    /**
+     * Converts a bitmap into an ESC/POS byte stream that the printer can print,
+     * using the {@code ESC * 33} (24-dot double-density) bit-image command.
+     *
+     * <p>The image is printed in horizontal strips 24 pixels high. The output
+     * buffer has 1000 extra bytes to cover the case where the image height is not
+     * a multiple of 24 (the last strip is padded) and the command overhead.
+     * The line spacing is set to 0 first so the strips join seamlessly.</p>
+     *
+     * @param bmp source bitmap
+     * @return ESC/POS data ready to be sent to the printer
      */
     public static byte[] draw2PxPoint(Bitmap bmp) {
         //用来存储转换后的 bitmap 数据。为什么要再加1000，这是为了应对当图片高度无法
@@ -738,6 +1032,16 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
 
     /**解析图片 获取打印数据**/
+    /**
+     * Converts a bitmap into 8-dot bit-image data ({@code ESC * 1}). Any pixel that
+     * is not pure white is printed as black.
+     *
+     * <p><b>Note:</b> this method is currently not used and assumes a fixed image
+     * width of 322 pixels.</p>
+     *
+     * @param bitmap source bitmap
+     * @return the print data
+     */
     private byte[] getReadBitMapBytes(Bitmap bitmap) {
         /***图片添加水印**/
         //bitmap = createBitmap(bitmap);
@@ -816,6 +1120,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
 
     // 给图片添加水印
+    /**
+     * Draws the current date as a watermark on a copy of the image.
+     *
+     * <p><b>Note:</b> currently not used. The date text is hard-coded in Chinese
+     * format and uses a Chinese font family name.</p>
+     *
+     * @param src source bitmap
+     * @return a new bitmap with the date drawn on it
+     */
     private Bitmap createBitmap(Bitmap src) {
         Time t = new Time();
         t.setToNow();
@@ -837,6 +1150,14 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         return bmpTemp;
     }
 
+    /**
+     * Converts a bitmap to a PNG {@link InputStream}.
+     *
+     * <p>Currently not used.</p>
+     *
+     * @param bm source bitmap
+     * @return an input stream with the PNG-encoded image
+     */
     private static InputStream Bitmap2IS(Bitmap bm){
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         bm.compress(Bitmap.CompressFormat.PNG, 100, baos);
@@ -847,6 +1168,12 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 打印------------------------------------------------
      *
      *
+     */
+    /**
+     * Builds a separator line made of {@code -} characters that spans the full
+     * line width ({@link #LINE_BYTE_SIZE}).
+     *
+     * @return the separator string, for example 32 or 48 dashes
      */
     public static String printSeperatorLine() {
         String seperator="";
@@ -859,6 +1186,11 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 打印文字
      *
      * @param text 要打印的文字
+     */
+    /**
+     * Sends text to the printer, encoded as GBK.
+     *
+     * @param text the text to print
      */
     public static void printText(String text) {
         try {
@@ -875,6 +1207,11 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      *
      * @param command 格式指令
      */
+    /**
+     * Sends a raw command to the printer using an explicit offset and length.
+     *
+     * @param command the command bytes
+     */
     public static void selectCommandByte(byte[] command) {
         try {
             outputStream.write(command, 0, command.length);
@@ -888,6 +1225,11 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 设置打印格式
      *
      * @param command 格式指令
+     */
+    /**
+     * Sends a raw ESC/POS command (for example format, alignment, cut) to the printer.
+     *
+     * @param command the command bytes
      */
     public static void selectCommand(byte[] command) {
         try {
@@ -904,6 +1246,14 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param msg
      * @return
      */
+    /**
+     * Returns the printed width of a string in bytes (GB2312 encoding).
+     * Latin characters take 1 byte and Chinese characters take 2 bytes, which
+     * matches the number of character cells they use on the printer.
+     *
+     * @param msg the string to measure
+     * @return the length in bytes
+     */
     @SuppressLint("NewApi")
     private static int getBytesLength(String msg) {
         return msg.getBytes(Charset.forName("GB2312")).length;
@@ -916,6 +1266,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param leftText  左侧文字
      * @param rightText 右侧文字
      * @return
+     */
+    /**
+     * Formats a two-column line: the left text is left-aligned, the right text is
+     * right-aligned, and spaces fill the gap so the line is exactly
+     * {@link #LINE_BYTE_SIZE} characters wide.
+     *
+     * @param leftText  text on the left
+     * @param rightText text on the right
+     * @return the formatted line
      */
     @SuppressLint("NewApi")
     public static String printTwoData(String leftText, String rightText) {
@@ -941,6 +1300,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param middleText 中间文字
      * @param rightText  右侧文字
      * @return
+     */
+    /**
+     * Formats a three-column line. The middle text is centered on the middle of
+     * the paper, the left text is left-aligned and the right text is right-aligned.
+     *
+     * @param leftText   text on the left
+     * @param middleText text in the middle
+     * @param rightText  text on the right
+     * @return the formatted line
      */
     @SuppressLint("NewApi")
     public static String printThreeData(String leftText, String middleText, String rightText) {
@@ -998,6 +1366,17 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param middleText1 中间文字
      * @param rightText  右侧文字
      * @return
+     */
+    /**
+     * Formats a four-column line using fixed column widths. The last three
+     * columns have fixed widths (6, 6 and 8 characters) and the first column
+     * takes the remaining space.
+     *
+     * @param leftText    text in the first column
+     * @param middleText1 text in the second column
+     * @param middleText2 text in the third column
+     * @param rightText   text in the fourth column
+     * @return the formatted line
      */
     @SuppressLint("NewApi")
     public static String printFourData(String leftText, String middleText1, String middleText2, String rightText) {
@@ -1060,6 +1439,19 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param middleText1 中间文字
      * @param rightText  右侧文字
      * @return
+     */
+    /**
+     * Older four-column layout that divides the line into proportional
+     * columns instead of using fixed widths.
+     *
+     * <p>Kept for reference; the active implementation is
+     * {@link #printFourData(String, String, String, String)}.</p>
+     *
+     * @param leftText    text in the first column
+     * @param middleText1 text in the second column
+     * @param middleText2 text in the third column
+     * @param rightText   text in the fourth column
+     * @return the formatted line
      */
     @SuppressLint("NewApi")
     public static String printFourDataOld(String leftText, String middleText1, String middleText2, String rightText) {
@@ -1135,7 +1527,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param printCount   添加的字符数量
      * @param identicalStr 添加的字符
      */
-
+    /**
+     * Appends the same string to a {@link StringBuilder} several times.
+     *
+     * @param builder      the builder to append to
+     * @param printCount   number of repetitions
+     * @param identicalStr the string to repeat
+     */
     private static void addIdenticalStrToStringBuilder(StringBuilder builder, int printCount, String identicalStr) {
         for (int i = 0; i < printCount; i++) {
             builder.append(identicalStr);
@@ -1148,6 +1546,15 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param str 原字符串
      * @param len 截取的字节数
      * @return 截取后的字符串
+     */
+    /**
+     * Returns the first {@code len} bytes of a string using GBK encoding, without
+     * cutting a double-byte character in half.
+     *
+     * @param str the source string
+     * @param len maximum number of bytes
+     * @return the truncated string, the original string if it already fits, or
+     * {@code null} if nothing fits or an error occurs
      */
     private static String subStringByGBK(String str, int len) {
         String result = null;
@@ -1177,12 +1584,24 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     /**
      * 添加换行符
      */
+    /**
+     * Appends a line break to a {@link StringBuilder}.
+     *
+     * @param builder the builder to append to
+     */
     private static void addLineSeparator(StringBuilder builder) {
         builder.append("\n");
     }
 
     /**
      * 在GBK编码下，获取其字符串占据的字符个数
+     */
+    /**
+     * Returns the number of character cells a string uses when encoded as GBK
+     * (1 byte per Latin character, 2 bytes per Chinese character).
+     *
+     * @param text the string to measure
+     * @return the length in bytes, or 0 if encoding fails
      */
     private static int getCharCountByGBKEncoding(String text) {
         try {
@@ -1196,6 +1615,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
     /**
      * 打印相关配置
+     */
+    /**
+     * Print options.
      */
     public static class PrintConfig {
         public int maxLength = 30;
@@ -1212,6 +1634,14 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 打印二维码
      * @param qrCode
      * @return
+     */
+    /**
+     * Builds the ESC/POS command sequence that prints a QR code
+     * ({@code GS ( k} commands): select model 2, set module size 8, set error
+     * correction level to 15% (L = 0x31), store the data and print the symbol.
+     *
+     * @param qrCode the content to encode
+     * @return the command bytes to send to the printer
      */
     public static  byte[]  getQrCodeCmd(String qrCode) {
         byte[] data;
@@ -1260,6 +1690,21 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 打印条码
      * @param barcode
      * @return
+     */
+    /**
+     * Builds the ESC/POS command sequence that prints a Code-128 barcode.
+     *
+     * <p>Code-128 needs a character set prefix: {@code "{A"} for upper-case
+     * letters, {@code "{B"} for all letters, digits and symbols, and
+     * {@code "{C"} for digit pairs (00-99). Short codes use set B directly; for
+     * long codes (18+ characters) runs of 10 or more digits are packed using
+     * set C to make the barcode shorter.</p>
+     *
+     * <p>The barcode is printed with the human-readable text below it, module
+     * width 2 and height 254 (0xFE).</p>
+     *
+     * @param barcode the barcode content
+     * @return the command bytes as a string, ready for {@link #printText(String)}
      */
     public static String getBarcodeCmd(String barcode) {
         // 打印 Code-128 条码时需要使用字符集前缀
@@ -1351,6 +1796,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 切纸
      * @return
      */
+    /**
+     * Returns the command that feeds the paper and cuts it
+     * ({@code GS V 66 n}). The last byte (0x15) controls how far the paper is
+     * fed before cutting.
+     *
+     * @return the cut command bytes
+     */
     public static  byte[] getCutPaperCmd() {
         // 走纸并切纸，最后一个参数控制走纸的长度
         byte[] data = {(byte) 0x1d, (byte) 0x56, (byte) 0x42, (byte) 0x15};
@@ -1362,6 +1814,12 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 对齐方式
      * @param alignMode
      * @return
+     */
+    /**
+     * Returns the alignment command for the given alignment value.
+     *
+     * @param alignMode {@link #ALIGN_LEFT_NEW}, {@link #ALIGN_CENTER_NEW} or {@link #ALIGN_RIGHT_NEW}
+     * @return the {@code ESC a n} command bytes (left alignment for unknown values)
      */
     public static  byte[]  getAlignCmd(int alignMode) {
         byte[] data = {(byte) 0x1b, (byte) 0x61, (byte) 0x0};
@@ -1380,6 +1838,14 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 字体大小
      * @param fontSize
      * @return
+     */
+    /**
+     * Returns the character size command ({@code GS ! n}) for the given font
+     * size value. In {@code n}, the high nibble is the width multiplier minus 1
+     * and the low nibble is the height multiplier minus 1.
+     *
+     * @param fontSize one of the {@code FONT_*_NEW} constants
+     * @return the command bytes (normal size for unknown values)
      */
     public static  byte[]  getFontSizeCmd(int fontSize) {
         byte[] data = {(byte) 0x1d, (byte) 0x21, (byte) 0x0};
@@ -1411,6 +1877,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param fontBold
      * @return
      */
+    /**
+     * Returns the bold mode command ({@code ESC E n}).
+     *
+     * @param fontBold {@link #FONT_BOLD_NEW} turns bold on,
+     *                 {@link #FONT_BOLD_CANCEL_NEW} turns it off
+     * @return the command bytes
+     */
     public static  byte[]  getFontBoldCmd(int fontBold) {
         byte[] data = {(byte) 0x1b, (byte) 0x45, (byte) 0x0};
 
@@ -1427,6 +1900,11 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 打开钱箱
      * @return
      */
+    /**
+     * Returns the command that opens the cash drawer ({@code DLE DC4}).
+     *
+     * @return the command bytes as a string
+     */
     public static String getOpenDrawerCmd() {
         byte[] data = new byte[4];
         data[0] = 0x10;
@@ -1441,6 +1919,12 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * 字符串转字节数组
      * @param str
      * @return
+     */
+    /**
+     * Converts a string to GBK-encoded bytes (going through UTF-8 first).
+     *
+     * @param str the source string
+     * @return the GBK bytes, or {@code null} if the encoding is unsupported
      */
     public static byte[] stringToBytes(String str) {
         byte[] data = null;
@@ -1462,6 +1946,13 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param bytesB
      * @return
      */
+    /**
+     * Concatenates two byte arrays.
+     *
+     * @param bytesA first array
+     * @param bytesB second array
+     * @return a new array containing {@code bytesA} followed by {@code bytesB}
+     */
     public static byte[] byteMerger(byte[] bytesA, byte[] bytesB) {
         byte[] bytes = new byte[bytesA.length + bytesB.length];
         System.arraycopy(bytesA, 0, bytes, 0, bytesA.length);
@@ -1469,6 +1960,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         return bytes;
     }
 
+    /**
+     * Called by Cordova when the plugin is destroyed.
+     */
     @Override
     public void onDestroy() {
         super.onDestroy();
