@@ -1652,29 +1652,30 @@ public class MKBluetoothPrinter extends CordovaPlugin {
         // QR Code: Select the model
         //              Hex     1D      28      6B      04      00      31      41      n1(x32)     n2(x00) - size of model
         // set n1 [49 x31, model 1] [50 x32, model 2] [51 x33, micro qr code]
-        // https://reference.epson-biz.com/modules/ref_escpos/index.php?content_id=140
+        // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn165.html
         byte[] modelQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x04, (byte)0x00, (byte)0x31, (byte)0x41, (byte)0x32, (byte)0x00};
 
         // QR Code: Set the size of module
         // Hex      1D      28      6B      03      00      31      43      n
         // n depends on the printer
-        // https://reference.epson-biz.com/modules/ref_escpos/index.php?content_id=141
+        // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn167.html
         byte[] sizeQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x03, (byte)0x00, (byte)0x31, (byte)0x43, (byte)0x08};
 
+        // QR Code: Select the error correction level
         //          Hex     1D      28      6B      03      00      31      45      n
         // Set n for error correction [48 x30 -> 7%] [49 x31-> 15%] [50 x32 -> 25%] [51 x33 -> 30%]
-        // https://reference.epson-biz.com/modules/ref_escpos/index.php?content_id=142
+        // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn169.html
         byte[] errorQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x03, (byte)0x00, (byte)0x31, (byte)0x45, (byte)0x31};
 
         // QR Code: Store the data in the symbol storage area
         // Hex      1D      28      6B      pL      pH      31      50      30      d1...dk
-        // https://reference.epson-biz.com/modules/ref_escpos/index.php?content_id=143
+        // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn180.html
         //                        1D          28          6B         pL          pH  cn(49->x31) fn(80->x50) m(48->x30) d1…dk
         byte[] storeQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, store_pL, store_pH, (byte)0x31, (byte)0x50, (byte)0x30};
 
         // QR Code: Print the symbol data in the symbol storage area
         // Hex      1D      28      6B      03      00      31      51      m
-        // https://reference.epson-biz.com/modules/ref_escpos/index.php?content_id=144
+        // https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/gs_lparen_lk_fn181.html
         byte[] printQR = {(byte)0x1d, (byte)0x28, (byte)0x6b, (byte)0x03, (byte)0x00, (byte)0x31, (byte)0x51, (byte)0x30};
 
         data = byteMerger(modelQR, sizeQR);
