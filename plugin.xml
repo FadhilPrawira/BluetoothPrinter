@@ -4,6 +4,7 @@
         version="1.0.1">
     <engines>
         <engine name="cordova" version=">=6.5.0" />
+        <engine name="cordova-android" version=">=6.0.0" />
     </engines>
 
     <name>BluetoothPrinter</name>
@@ -50,20 +51,13 @@
         </config-file>
 
         <config-file target="AndroidManifest.xml" parent="/*">
-            <uses-permission android:name="android.permission.INTERNET" /> 
-            <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" /> 
-            <uses-permission android:name="android.permission.BLUETOOTH" /> 
-            <uses-feature android:name="android.hardware.usb.host" android:required="false"/> 
-            <uses-permission android:name="android.hardware.usb.accessory" /> 
-            <uses-permission android:name="android.permission.DEVICE_POWER"/>
-            <uses-permission android:name="android.permission.WAKE_LOCK"/> 
-            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/> 
-            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" /> 
-            <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS" /> 
-            <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+            <!-- Android 11 and below (API 30-): install-time permissions -->
+            <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+            <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+            <!-- Android 12+ (API 31+): runtime permission, requested by the plugin -->
+            <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+            <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
         </config-file>
-
-       
 
         <source-file src="src/android/MKBluetoothPrinter.java" target-dir="src/cn/sj/cordova/bluetoothprint"/>
         

@@ -5,7 +5,8 @@
   "cordova": {
     "id": "cordova-plugin-bluetooth-printer",
     "platforms": [
-      "ios"
+      "ios",
+      "android"
     ]
   },
   "scripts": {
@@ -18,7 +19,8 @@
   "keywords": [
     "ecosystem:cordova",
     "cordova",
-    "cordova-ios"
+    "cordova-ios",
+    "cordova-android"
   ],
   "author": "lynzz",
   "license": "MIT",

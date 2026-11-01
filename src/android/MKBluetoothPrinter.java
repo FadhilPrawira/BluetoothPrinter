@@ -5,16 +5,17 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothSocket;
+import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Rect;
-import android.graphics.Typeface;
-import android.text.format.Time;
+import android.os.Build;
 import android.util.Base64;
 
 import org.apache.cordova.CallbackContext;
@@ -32,6 +33,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -92,6 +95,35 @@ public class MKBluetoothPrinter extends CordovaPlugin {
 
     private BluetoothAdapter mBluetoothAdapter;
 
+    /**
+     * Runtime permission required on Android 12 (API 31) and newer to talk to
+     * paired Bluetooth devices. Declared as a string so the plugin still compiles
+     * against older compile SDKs.
+     */
+    private static final String BLUETOOTH_CONNECT = "android.permission.BLUETOOTH_CONNECT";
+
+    private static final int REQUEST_BLUETOOTH_CONNECT = 7301;
+
+    /**
+     * All actions handled by {@link #execute(String, JSONArray, CallbackContext)}.
+     */
+    private static final List<String> ACTIONS = Arrays.asList(
+            "autoConnectPeripheral", "setPrinterPageWidth", "getCurrentSetPageWidth",
+            "isConnectPeripheral", "scanForPeripherals", "stopScan", "getPeripherals",
+            "connectPeripheral", "setPrinterInfoAndPrinter", "stopPeripheralConnection",
+            "printLog");
+
+    /**
+     * Actions that need {@code BLUETOOTH_CONNECT} on Android 12+.
+     */
+    private static final List<String> CONNECT_PERMISSION_ACTIONS = Arrays.asList(
+            "autoConnectPeripheral", "scanForPeripherals", "getPeripherals", "connectPeripheral");
+
+    // Call waiting for the user to answer the permission dialog
+    private String pendingAction;
+    private JSONArray pendingArgs;
+    private CallbackContext pendingCallback;
+
     private Activity activity;
     private String boothAddress = "";
     private String oneModel, drawingRev, oneClass, oneCode, chipId, dateTime, specification = "";
@@ -99,12 +131,12 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     /**
      * Whether a Bluetooth printer is currently connected.
      */
-    private boolean isConnection = false;//蓝牙是否连接
+    private static volatile boolean isConnection = false;//蓝牙是否连接
 
     /**
      * Whether device lookup keeps polling until paired devices are found.
      */
-    private boolean isKeep = false;//蓝牙持续回调
+    private volatile boolean isKeep = false;//蓝牙持续回调
     private BluetoothDevice device = null;
     private static BluetoothSocket bluetoothSocket = null;
     private static OutputStream outputStream = null;
@@ -327,89 +359,161 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @return {@code true} if the action is known and handled, {@code false} otherwise
      * @throws JSONException if the arguments cannot be parsed
      */
-    public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
-        //自动连接 历史连接过的设备
-        // Auto-connect to a previously connected device
+    public boolean execute(final String action, final JSONArray args, final CallbackContext callbackContext) throws JSONException {
+        if (!ACTIONS.contains(action)) {
+            return false;
+        }
+
+        // Android 12+ (API 31): BLUETOOTH_CONNECT is a runtime permission
+        if (CONNECT_PERMISSION_ACTIONS.contains(action) && !hasConnectPermission()) {
+            if (pendingCallback != null) {
+                pendingCallback.error("Bluetooth permission request was superseded");
+            }
+            pendingAction = action;
+            pendingArgs = args;
+            pendingCallback = callbackContext;
+            cordova.requestPermission(this, REQUEST_BLUETOOTH_CONNECT, BLUETOOTH_CONNECT);
+            return true;
+        }
+
+        runAction(action, args, callbackContext);
+        return true;
+    }
+
+    /**
+     * Whether the app may use paired Bluetooth devices. Always true below Android 12.
+     */
+    private boolean hasConnectPermission() {
+        return Build.VERSION.SDK_INT < 31 || cordova.hasPermission(BLUETOOTH_CONNECT);
+    }
+
+    /**
+     * Runs an action on the Cordova thread pool. Connecting, printing and the
+     * paired-device polling block, so they must not run on the WebView thread.
+     */
+    private void runAction(final String action, final JSONArray args, final CallbackContext callbackContext) {
+        cordova.getThreadPool().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    dispatch(action, args, callbackContext);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    callbackContext.error(String.valueOf(e.getMessage()));
+                }
+            }
+        });
+    }
+
+    /**
+     * Continues the call that was waiting for the Bluetooth permission dialog.
+     */
+    @Override
+    public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException {
+        if (requestCode != REQUEST_BLUETOOTH_CONNECT || pendingCallback == null) {
+            return;
+        }
+        String action = pendingAction;
+        JSONArray args = pendingArgs;
+        CallbackContext callbackContext = pendingCallback;
+        pendingAction = null;
+        pendingArgs = null;
+        pendingCallback = null;
+
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            runAction(action, args, callbackContext);
+        } else {
+            callbackContext.error("Bluetooth permission denied");
+        }
+    }
+
+    private void dispatch(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
         if (action.equals("autoConnectPeripheral")) {
+            // Auto-connect to a previously connected device
             autoConnect(args, callbackContext);
-            return true;
-        }
-
-        //设置打印机宽度
-        // Set printer paper width
-        if (action.equals("setPrinterPageWidth")) {
+        } else if (action.equals("setPrinterPageWidth")) {
+            // Set printer paper width
             setPrinterPageWidth(args, callbackContext);
-            return true;
-        }
-
-        //获取当前设置的纸张宽度
-        // Get the currently configured paper width
-        if (action.equals("getCurrentSetPageWidth")) {
+        } else if (action.equals("getCurrentSetPageWidth")) {
+            // Get the currently configured paper width
             getCurrentSetPageWidth(args, callbackContext);
-            return true;
-        }
-
-        //是否已连接设备   * 返回： "1":是  "0":否
-        // Is a device connected? Returns "1": yes, "0": no
-        if (action.equals("isConnectPeripheral")) {
+        } else if (action.equals("isConnectPeripheral")) {
+            // Is a device connected? Returns "1": yes, "0": no
             isConnectPeripheral(args, callbackContext);
-            return true;
-        }
-
-        //获取已配对的蓝牙设备 keep：是否持续回调 （0：否， 1：是，default:0） 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
-        // List paired Bluetooth devices.
-        // keep: keep polling until devices are found (0: no, 1: yes, default: 0)
-        // Result example: [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
-        if (action.equals("scanForPeripherals")) {
+        } else if (action.equals("scanForPeripherals") || action.equals("getPeripherals")) {
+            // List paired Bluetooth devices.
+            // keep: keep polling until devices are found (0: no, 1: yes, default: 0)
+            // Result example: [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
             getPairedDevices(args, callbackContext);
-            return true;
-        }
-
-        //停止扫描
-        // Stop scanning
-        if (action.equals("stopScan")) {
+        } else if (action.equals("stopScan")) {
+            // Stop scanning
             stopScan(args, callbackContext);
-            return true;
-        }
-
-        //获取已配对的蓝牙设备 开始扫描设备 [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
-        // List paired Bluetooth devices
-        // Result example: [{"name":"Printer_2EC1","uuid":"9A87E98E-BE88-5BA6-2C31-ED4869300E6E"}]
-        if (action.equals("getPeripherals")) {
-            getPairedDevices(args, callbackContext);
-            return true;
-        }
-
-
-        //连接选中的蓝牙设备(打印机)
-        // Connect to the selected Bluetooth device (printer)
-        if (action.equals("connectPeripheral")) {
+        } else if (action.equals("connectPeripheral")) {
+            // Connect to the selected Bluetooth device (printer)
             connectDevice(args, callbackContext);
-            return true;
-        }
-
-        //打印
-        // Print
-        if (action.equals("setPrinterInfoAndPrinter")) {
+        } else if (action.equals("setPrinterInfoAndPrinter")) {
+            // Print
             printText(args, callbackContext);
-            return true;
-        }
-
-        //断开连接
-        // Disconnect
-        if (action.equals("stopPeripheralConnection")) {
+        } else if (action.equals("stopPeripheralConnection")) {
+            // Disconnect
             closeConnect(args, callbackContext);
-            return true;
-        }
-
-        //在Xcode控制台打印log
-        // Print a log message (iOS: Xcode console; no-op on Android)
-        if (action.equals("printLog")) {
+        } else if (action.equals("printLog")) {
+            // Print a log message (iOS: Xcode console; no-op on Android)
             printLog(args, callbackContext);
-            return true;
         }
+    }
 
-        return false;
+    /**
+     * Returns the default Bluetooth adapter, or {@code null} if the device has no Bluetooth.
+     */
+    private BluetoothAdapter getAdapter() {
+        BluetoothManager manager = (BluetoothManager) cordova.getActivity().getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = manager != null ? manager.getAdapter() : null;
+        return adapter != null ? adapter : BluetoothAdapter.getDefaultAdapter();
+    }
+
+    /**
+     * Closes any previous socket, opens an RFCOMM socket to the device and
+     * remembers the address for {@link #autoConnect}. Throws on failure.
+     */
+    private void openSocket(BluetoothDevice target) throws IOException {
+        closeQuietly();
+        BluetoothSocket socket = target.createRfcommSocketToServiceRecord(uuid);
+        try {
+            socket.connect();
+            outputStream = socket.getOutputStream();
+        } catch (IOException e) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+            throw e;
+        }
+        bluetoothSocket = socket;
+        device = target;
+        name_bl = target.getName();
+        uuid_bl = target.getAddress();
+        isConnection = true;
+        activity.getSharedPreferences("device", Context.MODE_PRIVATE)
+                .edit().putString("address", uuid_bl).apply();
+    }
+
+    private static void closeQuietly() {
+        isConnection = false;
+        try {
+            if (outputStream != null) {
+                outputStream.close();
+            }
+        } catch (IOException ignored) {
+        }
+        try {
+            if (bluetoothSocket != null) {
+                bluetoothSocket.close();
+            }
+        } catch (IOException ignored) {
+        }
+        outputStream = null;
+        bluetoothSocket = null;
     }
 
     /**
@@ -422,39 +526,36 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param args            unused
      * @param callbackContext callback to return the result
      */
-    public void autoConnect(final JSONArray args, final CallbackContext callbackContext) {
-        SharedPreferences pref = activity.getSharedPreferences("device", activity.MODE_PRIVATE);
+    public synchronized void autoConnect(final JSONArray args, final CallbackContext callbackContext) {
+        if (isConnection) {
+            callbackContext.success("连接成功");
+            return;
+        }
+        SharedPreferences pref = activity.getSharedPreferences("device", Context.MODE_PRIVATE);
         String deviceAddress = pref.getString("address", "");
-        if (deviceAddress != null) {
-            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-            Set<BluetoothDevice> pairedDevices = mBluetoothAdapter
-                    .getBondedDevices();// 获取本机已配对设备
-            if (pairedDevices.size() > 0) {
-                for (BluetoothDevice device1 : pairedDevices) {
-                    if (device1.getAddress().equals(deviceAddress)) {
-                        device = device1;
-                        break;
-                    }
+        mBluetoothAdapter = getAdapter();
+        if (deviceAddress == null || deviceAddress.isEmpty()
+                || mBluetoothAdapter == null || !mBluetoothAdapter.isEnabled()) {
+            callbackContext.error("连接失败");
+            return;
+        }
+        try {
+            BluetoothDevice saved = null;
+            for (BluetoothDevice device1 : mBluetoothAdapter.getBondedDevices()) {// 获取本机已配对设备
+                if (device1.getAddress().equals(deviceAddress)) {
+                    saved = device1;
+                    break;
                 }
             }
-
-            if (!isConnection) {//没有连接
-                try {
-                    bluetoothSocket = device
-                            .createRfcommSocketToServiceRecord(uuid);
-                    bluetoothSocket.connect();
-                    name_bl = device.getName();
-                    uuid_bl = device.getAddress();
-                    outputStream = bluetoothSocket.getOutputStream();
-                    isConnection = true;
-                    callbackContext.success("连接成功");
-                } catch (Exception e) {
-                    isConnection = false;
-                    callbackContext.error("连接失败");
-                }
-            } else {//连接了
-                callbackContext.success("连接成功");
+            if (saved == null) {
+                callbackContext.error("连接失败");
+                return;
             }
+            openSocket(saved);
+            callbackContext.success("连接成功");
+        } catch (Exception e) {
+            isConnection = false;
+            callbackContext.error("连接失败");
         }
     }
 
@@ -562,19 +663,9 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param callbackContext callback to return the result
      * @throws JSONException if the arguments cannot be parsed
      */
-    private void closeConnect(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
-        try {
-            bluetoothSocket.close();
-            outputStream.close();
-            isConnection = false;
-            callbackContext.success("断开连接成功！");
-
-        } catch (IOException e) {
-
-            isConnection = true;
-            callbackContext.error("断开连接失败！");
-
-        }
+    private synchronized void closeConnect(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
+        closeQuietly();
+        callbackContext.success("断开连接成功！");
     }
 
     /**
@@ -587,29 +678,25 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param callbackContext callback to return the result
      * @throws JSONException if the address argument is missing
      */
-    private void connectDevice(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
+    private synchronized void connectDevice(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
         final String address = args.getString(0);
-        // Get the local Bluetooth adapter
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        device = mBluetoothAdapter.getRemoteDevice(address);
-        if (!isConnection) {//没有连接
-            try {
-                bluetoothSocket = device
-                        .createRfcommSocketToServiceRecord(uuid);
-                bluetoothSocket.connect();
-                outputStream = bluetoothSocket.getOutputStream();
-                isConnection = true;
-                name_bl = device.getName();
-                uuid_bl = device.getAddress();
-                callbackContext.success("连接成功");
-            } catch (Exception e) {
-                isConnection = false;
-                callbackContext.error("连接失败");
-            }
-        } else {//连接了
+        if (isConnection) {//连接了
             callbackContext.success("连接成功");
+            return;
         }
-
+        // Get the local Bluetooth adapter
+        mBluetoothAdapter = getAdapter();
+        if (mBluetoothAdapter == null || !mBluetoothAdapter.isEnabled()) {
+            callbackContext.error("连接失败");
+            return;
+        }
+        try {
+            openSocket(mBluetoothAdapter.getRemoteDevice(address));
+            callbackContext.success("连接成功");
+        } catch (Exception e) {
+            isConnection = false;
+            callbackContext.error("连接失败");
+        }
     }
 
     /*
@@ -632,30 +719,35 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @throws JSONException if the result JSON cannot be built
      */
     private void getPairedDevices(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
-        // Get the local Bluetooth adapter
         String keep = "0";
         try {
             keep = args.getString(0);
         } catch (Exception e) {
             e.printStackTrace();
         }
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        // Get a set of currently paired devices
-        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-        // If there are paired devices, add each one to the ArrayAdapter
+        isKeep = "1".equals(keep);
 
-
-        if ("1".equals(keep)) {
-            isKeep = true;
-        } else {
-            isKeep = false;
+        Set<BluetoothDevice> pairedDevices = null;
+        try {
+            do {
+                // Get the local Bluetooth adapter
+                mBluetoothAdapter = getAdapter();
+                if (mBluetoothAdapter != null && mBluetoothAdapter.isEnabled()) {
+                    pairedDevices = mBluetoothAdapter.getBondedDevices();
+                }
+                if (pairedDevices != null && pairedDevices.size() > 0) {
+                    break;
+                }
+                if (isKeep) {
+                    Thread.sleep(500);
+                }
+            } while (isKeep);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (SecurityException e) {
+            callbackContext.error("Bluetooth permission denied");
+            return;
         }
-
-        while (isKeep && (pairedDevices == null || pairedDevices.size() == 0)) {
-            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-            pairedDevices = mBluetoothAdapter.getBondedDevices();
-        }
-
 
         if (pairedDevices != null && pairedDevices.size() > 0) {
             JSONArray json = new JSONArray();
@@ -668,7 +760,6 @@ public class MKBluetoothPrinter extends CordovaPlugin {
             callbackContext.success(json);
         } else {
             callbackContext.error("未有配对蓝牙");
-
         }
     }
 
@@ -707,7 +798,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
      * @param callbackContext callback to return the result
      * @throws JSONException if the first argument is missing
      */
-    private void printText(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
+    private synchronized void printText(final JSONArray args, final CallbackContext callbackContext) throws JSONException {
 
         String sendData = args.getString(0);
 
@@ -1183,38 +1274,6 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     }
 
 
-    // 给图片添加水印
-
-    /**
-     * Draws the current date as a watermark on a copy of the image.
-     *
-     * <p><b>Note:</b> currently not used. The date text is hard-coded in Chinese
-     * format and uses a Chinese font family name.</p>
-     *
-     * @param src source bitmap
-     * @return a new bitmap with the date drawn on it
-     */
-    private Bitmap createBitmap(Bitmap src) {
-        Time t = new Time();
-        t.setToNow();
-        int w = src.getWidth();
-        int h = src.getHeight();
-        String mstrTitle = t.year + " 年 " + (t.month + 1) + " 月 " + t.monthDay + " 日";
-        Bitmap bmpTemp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bmpTemp);
-        Paint p = new Paint();
-        String familyName = "宋体";
-        Typeface font = Typeface.create(familyName, Typeface.BOLD);
-        p.setColor(Color.BLACK);
-        p.setTypeface(font);
-        p.setTextSize(33);
-        canvas.drawBitmap(src, 0, 0, p);
-        canvas.drawText(mstrTitle, 20, 310, p);
-        canvas.save();
-        canvas.restore();
-        return bmpTemp;
-    }
-
     /**
      * Converts a bitmap to a PNG {@link InputStream}.
      *
@@ -1264,6 +1323,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
             outputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
+            isConnection = false;
         }
     }
 
@@ -1283,6 +1343,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
             outputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
+            isConnection = false;
         }
     }
 
@@ -1302,6 +1363,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
             outputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
+            isConnection = false;
         }
     }
 
@@ -2031,6 +2093,7 @@ public class MKBluetoothPrinter extends CordovaPlugin {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        closeQuietly();
 
     }
 }
